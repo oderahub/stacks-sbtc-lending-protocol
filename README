@@ -1,0 +1,83 @@
+# Stacks sBTC-Backed Lending Pool
+
+A peer-to-pool lending protocol on the Stacks blockchain that lets users:
+- Deposit STX to earn yield
+- Borrow STX using sBTC as collateral
+- Get undercollateralized positions liquidated automatically via DEX swaps
+- Use an oracle-driven price feed
+
+The project is built with Clarity smart contracts and tested against a local Simnet using the Clarinet Vitest environment.
+
+## Features
+- Overcollateralized borrowing against sBTC collateral
+- Per-block interest accrual and lender yield
+- Oracle-updated pricing (mock oracle in tests)
+- Automated liquidation path that swaps seized sBTC via ALEX’s XYK pool
+- End-to-end integration tests on Simnet
+
+## Contracts (high level)
+- lending-pool: core deposit/borrow/repay/withdraw/liquidate logic
+- mock-oracle: simple on-chain price feed with an authorized updater
+
+External contracts used in tests (via Clarinet manifest):
+- sBTC token: SM3VDXK3WZZS…JFQ4.sbtc-token
+- ALEX token STX and XYK pool helpers:
+  - SM1793C4R5PZ4…HCCR.token-stx-v-1-2
+  - SM1793C4R5PZ4…HCCR.xyk-pool-sbtc-stx-v-1-1
+  - SM1793C4R5PZ4…HCCR.xyk-swap-helper-v-1-3
+
+See Clarinet.toml for the exact contract identifiers.
+
+## Core flows
+- Deposit: deposit-stx(amount)
+- Borrow: borrow-stx(collateral-amount, borrow-amount)
+  - Enforces max LTV; borrowing above the limit returns an error
+- Repay: repay() settles outstanding debt (with accrued interest)
+- Withdraw: withdraw-stx(amount)
+- Liquidate: liquidate(borrower)
+  - If borrower LTV exceeds the liquidation threshold, the protocol seizes collateral and uses ALEX XYK to swap for STX to cover debt
+
+## Risk model (as used in tests)
+- Max LTV: 70% (e.g., with 1 sBTC worth 10 STX, max borrow is 7 STX)
+- Liquidation occurs when price moves against the borrower such that LTV breaches the threshold
+- Interest accrues over time and is paid out as lender yield
+
+## Project structure
+- contracts/… (Clarity sources; see Clarinet.toml for entries)
+- tests/
+  - lending-pool.test.ts — end-to-end integration tests
+  - tests/mock-oracle.test.ts — oracle behavior tests
+- vitest.config.js — Clarinet + Vitest environment config
+- Clarinet.toml — contract manifest and deploy plan
+
+## Prerequisites
+- Node.js 18+ and npm
+- No separate Vitest install required (it’s in devDependencies)
+- Clarinet is not required to run these tests; the Simnet is provided by @hirosystems/clarinet-sdk
+
+## Install and test
+- Install deps:
+  - npm install
+- Run tests:
+  - npm run test
+
+Notes:
+- The liquidation test executes a full DEX swap path and can take ~60–90s on some machines.
+- vitest.config.js sets testTimeout and hookTimeout to 150s to accommodate heavy integration paths.
+- If you see “[vitest-worker]: Timeout calling onTaskUpdate”, it’s a Vitest RPC warning for long-running tests; results are still valid.
+
+## Example test expectations
+- Deposit succeeds and updates total-stx-deposits
+- Borrow within LTV passes; borrowing at or above 100% fails with an error code
+- Interest accrues over simulated blocks and is claimable as lender yield
+- Liquidation after a price drop repays debt, clears collateral, and rewards the liquidator
+
+## Development tips
+- Update prices in tests via the mock oracle:
+  - mock-oracle.initialize(updater)
+  - mock-oracle.update-price(price)
+- Adjust time/interest scenarios using simnet.mineEmptyBlocks(n)
+- For faster local runs, you can scale amounts down in the liquidation test (smaller borrow/collateral) at the expense of realism
+
+## License
+MIT
